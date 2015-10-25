@@ -1,0 +1,112 @@
+---
+title: "Practical Machine Learning"
+output: html_document
+---
+
+This is the write-up for the Practical Machine Learning project, data source: http://groupware.les.inf.puc-rio.br/har.
+This is a problem of classification. I chose to use randomForest since it corrects for decision trees overfitting to their training set.
+
+
+Add libraries and read training and testing data.
+```{r}
+library(caret)
+library(randomForest)
+
+training <- read.csv("pml-training.csv", header = TRUE, sep = ",", quote = "\"", dec = ".", fill = TRUE, comment.char = "")
+testing <- read.csv("pml-testing.csv", header = TRUE, sep = ",", quote = "\"", dec = ".", fill = TRUE, comment.char = "")
+```
+
+Clean data. I removed the columns which contain too many rows of NA and empty. I also removed predictors that I don't think useful, like timestamp.
+```{r}
+# Remove NA columns
+training2 <- training[, colSums(is.na(training)) != 19216]
+# Remove empty columns
+newtraining <- training2[, colSums(training2 == "") != 19216]
+newtraining$cvtd_timestamp <- NULL
+newtraining$raw_timestamp_part_1 <- NULL
+newtraining$raw_timestamp_part_2 <- NULL
+newtraining$user_name <- NULL
+```
+
+Split taining data into my trainig data and my testing data, in order to do cross validation and calculate the accuracy of my model later.
+```{r}
+inTrain = createDataPartition(newtraining$classe, p = 3/4)[[1]]
+mytraining1 = newtraining[ inTrain,]
+mytesting1 = newtraining[-inTrain,]
+# Remove index
+mytraining1$X <- NULL
+mytesting1$X <- NULL
+# Exploratory plot sample using roll predictors
+samplesdata <- mytraining1[grep("^roll", colnames(mytraining1))]
+featurePlot(x = samplesdata, y = mytraining1$classe, pch = 20, plot = "pairs")
+```
+
+Let the final testing data frame has the same columns as the training data frame, except for the "classe"
+```{r}
+mytraining2=mytraining1
+mytraining2$classe <- NULL
+coltest <- colnames(mytraining2)
+print(coltest) # These are the predictors in my following model
+testing1 <- testing[coltest]
+```
+
+The class(type) of each predictor are diffirent from mytraining data and final testing data. In order to make them have the same types, I combined them first and then remove the newly combined useless rows.
+```{r}
+# run these two lines can see the different classes
+# lapply(mytraining1, class)
+# lapply(testing1, class)
+testing1 <- rbind(testing1, mytraining2) # combine
+testing1 <- head(testing1,-14718) # remove
+```
+
+Train the model, test the model and predict. At first, I used caret rf method to train my model, but it took so long (more than 4 hours on my laptop), so I finally used the basic randomForest package.
+```{r}
+# train
+modFit1 <- randomForest(classe ~. ,data=mytraining1, keep.forest=TRUE, importance=TRUE)
+modFit1
+# test
+predict1 <- predict(modFit1, mytesting1)
+# see the accuracy
+confusionMatrix(predict1, mytesting1$classe)
+# predict
+predict2 <- predict(modFit1, testing1)
+# outcome
+predict2
+# Calculate out of sample error appropriately with cross-validation
+outaccuracy <- sum(predict1 == mytesting1$classe)/length(predict1)
+error <- (1-outaccuracy)*100
+cat("out of sample error: ",error,"%")
+```
+
+Different plots.
+```{r}
+# Importance of each predictor
+varImpPlot(modFit1)
+# Under majority votes, positive margin means correct classification, and negative means wrong classification. In the 14718 cases, few are negative margin, which means the big majority are classified correctly.
+plot(margin(modFit1))
+# This a graphical depiction of the marginal effect of num_window (the most important predictor) on the class probability (classification) 
+partialPlot(modFit1, mytraining1, num_window)
+# Compute outlying measures based on the proximity matrix, we can see the green class has smallest number of outliers
+modFit2 <- randomForest(classe~.,data=mytraining1, proximity=TRUE)
+plot(outlier(modFit2), type="h", col=c("red", "green", "blue", "yellow", "pink")[as.numeric(mytraining1$classe)])
+# It took me very very long to plot the scaling coordinates of the proximity matrix from randomForest, and my laptop crushed, so I gave up to the next plot
+# MDSplot(modFit2, mytraining1$classe)
+```
+
+
+I also tried to do PCA first and try to make the predictors to be more reasonalble. The accuracy was good but not better than the above pure predictors. I finally kept the above method.
+```{r}
+# PCA
+preProc1 <- preProcess(newtraining, method='pca', thresh=0.99, outcome=newtraining$classe) # default is 0.95
+# preProc1$rotation
+trainPC1 = predict(preProc1, newtraining)
+
+inTrain = createDataPartition(trainPC1$classe, p = 3/4)[[1]]
+mytrainPC1 = trainPC1[ inTrain,]
+mytestPC1 = trainPC1[-inTrain,]
+
+modFit3 <- randomForest(classe ~. , data=mytrainPC1)
+modFit3
+predict3 <- predict(modFit3, mytestPC1)
+confusionMatrix(predict3, mytestPC1$classe)
+```
