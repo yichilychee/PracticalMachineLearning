@@ -73,7 +73,13 @@ predict2 <- predict(modFit1, testing1)
 # outcome
 predict2
 # Calculate out of sample error appropriately with cross-validation
-outaccuracy <- sum(predict1 == mytesting1$classe)/length(predict1)
+corret = 0
+for (i in 1:length(predict1)) {
+  if (predict1[i] == mytesting1$classe[i]) {
+    corret = corret+1
+  }
+}
+outaccuracy <- corret/length(predict1)
 error <- (1-outaccuracy)*100
 cat("out of sample error: ",error,"%")
 ```
